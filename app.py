@@ -315,19 +315,6 @@ def main():
         metric_cols[2].metric("Pearson", f"{autoencoder_metrics['Pearson']:.4f}")
         metric_cols[3].metric("SNR Improvement", f"{autoencoder_metrics['SNR_improvement']:.2f} dB")
 
-        st.subheader(TXT["comparison"])
-        st.dataframe(
-            comparison_df.style.format(
-                {
-                    "MSE": "{:.6f}",
-                    "MAE": "{:.6f}",
-                    "Pearson": "{:.4f}",
-                    "SNR Improvement": "{:.2f}",
-                }
-            ),
-            use_container_width=True,
-        )
-
         feature_options = {
             "show_p": show_p,
             "show_qrs": show_qrs,
@@ -342,6 +329,18 @@ def main():
             feature_options,
         )
         st.pyplot(fig, clear_figure=False)
+        st.subheader(TXT["comparison"])
+        st.dataframe(
+            comparison_df.style.format(
+                {
+                    "MSE": "{:.6f}",
+                    "MAE": "{:.6f}",
+                    "Pearson": "{:.4f}",
+                    "SNR Improvement": "{:.2f}",
+                }
+            ),
+            use_container_width=True,
+        )
         show_download_area(
             clean_signal,
             noisy_signal,
