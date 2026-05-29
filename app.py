@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 import torch
-from scipy.signal import find_peaks
+from scipy.signal import butter, filtfilt, find_peaks
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -21,11 +21,38 @@ from noise import add_noise
 
 SEGMENT_LENGTH = 1000
 MODEL_PATH = PROJECT_ROOT / "results" / "best_model.pth"
+SAMPLING_RATE = 500
+BUTTERWORTH_CUTOFF = 40
+BUTTERWORTH_ORDER = 4
+
+TXT = {
+    "title": "\u0045\u0043\u0047\u5fc3\u7535\u4fe1\u53f7\u53bb\u566a\u7cfb\u7edf",
+    "settings": "\u53c2\u6570\u8bbe\u7f6e",
+    "upload": "\u4e0a\u4f20\u0043\u0053\u0056\u6587\u4ef6",
+    "noise_type": "\u566a\u58f0\u7c7b\u578b",
+    "mixed": "\u6df7\u5408\u566a\u58f0",
+    "gaussian": "\u9ad8\u65af\u566a\u58f0",
+    "line": "\u5de5\u9891\u5e72\u6270",
+    "baseline": "\u57fa\u7ebf\u6f02\u79fb",
+    "features": "\u6ce2\u5f62\u7279\u5f81\u663e\u793a",
+    "show_p": "\u663e\u793a\u0050\u6ce2",
+    "show_qrs": "\u663e\u793a\u0051\u0052\u0053\u6ce2\u7fa4",
+    "show_t": "\u663e\u793a\u0054\u6ce2",
+    "show_r": "\u663e\u793a\u0052\u5cf0",
+    "info": "\u8bf7\u4e0a\u4f20\u65e0\u8868\u5934\u3001\u0031\u0032\u5217\u7684\u0045\u0043\u0047\u0020\u0043\u0053\u0056\u6587\u4ef6\u3002\u7cfb\u7edf\u9ed8\u8ba4\u8bfb\u53d6\u7b2c\u0032\u5217\u4f5c\u4e3a\u5355\u5bfc\u8054\u0045\u0043\u0047\u4fe1\u53f7\u3002",
+    "comparison": "\u53bb\u566a\u65b9\u6cd5\u5bf9\u6bd4",
+    "download": "\u4e0b\u8f7d\u7ed3\u679c",
+    "download_signal": "\u4e0b\u8f7d denoised_signal.csv",
+    "download_metrics": "\u4e0b\u8f7d metrics.csv",
+    "download_png": "\u4e0b\u8f7d result.png",
+    "run_failed": "\u8fd0\u884c\u5931\u8d25",
+}
+
 NOISE_TYPE_MAP = {
-    "混合噪声": "mixed",
-    "高斯噪声": "gaussian",
-    "工频干扰": "line",
-    "基线漂移": "baseline",
+    TXT["mixed"]: "mixed",
+    TXT["gaussian"]: "gaussian",
+    TXT["line"]: "line",
+    TXT["baseline"]: "baseline",
 }
 
 
@@ -75,6 +102,14 @@ def run_autoencoder(model, device, clean_signal, noise_type):
     return noisy_signal, denoised_signal
 
 
+def butterworth_lowpass_filter(signal, sampling_rate=SAMPLING_RATE, cutoff=BUTTERWORTH_CUTOFF, order=BUTTERWORTH_ORDER):
+    nyquist = 0.5 * sampling_rate
+    normalized_cutoff = cutoff / nyquist
+    b, a = butter(order, normalized_cutoff, btype="low")
+    filtered_signal = filtfilt(b, a, signal)
+    return np.clip(filtered_signal, -1.0, 1.0).astype(np.float32)
+
+
 def calculate_snr(clean_signal, compared_signal):
     noise = clean_signal - compared_signal
     signal_power = float(np.mean(clean_signal**2))
@@ -103,6 +138,27 @@ def calculate_metrics(clean_signal, noisy_signal, denoised_signal):
         "SNR_after": snr_after,
         "SNR_improvement": snr_after - snr_before,
     }
+
+
+def make_comparison_df(autoencoder_metrics, butterworth_metrics):
+    return pd.DataFrame(
+        [
+            {
+                "Method": "AutoEncoder",
+                "MSE": autoencoder_metrics["MSE"],
+                "MAE": autoencoder_metrics["MAE"],
+                "Pearson": autoencoder_metrics["Pearson"],
+                "SNR Improvement": autoencoder_metrics["SNR_improvement"],
+            },
+            {
+                "Method": "Butterworth",
+                "MSE": butterworth_metrics["MSE"],
+                "MAE": butterworth_metrics["MAE"],
+                "Pearson": butterworth_metrics["Pearson"],
+                "SNR Improvement": butterworth_metrics["SNR_improvement"],
+            },
+        ]
+    )
 
 
 def detect_r_peaks(signal):
@@ -150,14 +206,15 @@ def draw_annotations(axis, signal, r_peaks, show_p, show_qrs, show_t, show_r):
             axis.text(peak, text_y, "R", color="red", fontsize=9, ha="center")
 
 
-def plot_signals(clean_signal, noisy_signal, denoised_signal, feature_options):
+def plot_signals(clean_signal, noisy_signal, denoised_signal, butterworth_signal, feature_options):
     r_peaks = detect_r_peaks(clean_signal)
     signals = [
         ("Original Signal", "Original Signal", "green", clean_signal),
         ("Noisy Signal", "Noisy Signal", "red", noisy_signal),
         ("Denoised Signal", "Denoised Signal", "blue", denoised_signal),
+        ("Butterworth Filtered Signal", "Butterworth Filtered Signal", "purple", butterworth_signal),
     ]
-    fig, axes = plt.subplots(3, 1, figsize=(12, 8), dpi=120)
+    fig, axes = plt.subplots(4, 1, figsize=(12, 10), dpi=120)
     x = np.arange(SEGMENT_LENGTH)
 
     for axis, (title, label, color, signal) in zip(axes, signals):
@@ -175,31 +232,20 @@ def plot_signals(clean_signal, noisy_signal, denoised_signal, feature_options):
     return fig
 
 
-def make_signal_csv(clean_signal, noisy_signal, denoised_signal):
+def make_signal_csv(clean_signal, noisy_signal, denoised_signal, butterworth_signal):
     signal_df = pd.DataFrame(
         {
             "clean_signal": clean_signal,
             "noisy_signal": noisy_signal,
             "denoised_signal": denoised_signal,
+            "butterworth_signal": butterworth_signal,
         }
     )
     return signal_df.to_csv(index=False).encode("utf-8-sig")
 
 
-def make_metrics_csv(metrics):
-    metrics_df = pd.DataFrame(
-        [
-            {
-                "MSE": metrics["MSE"],
-                "MAE": metrics["MAE"],
-                "Pearson": metrics["Pearson"],
-                "SNR_before": metrics["SNR_before"],
-                "SNR_after": metrics["SNR_after"],
-                "SNR_improvement": metrics["SNR_improvement"],
-            }
-        ]
-    )
-    return metrics_df.to_csv(index=False).encode("utf-8-sig")
+def make_metrics_csv(comparison_df):
+    return comparison_df.to_csv(index=False).encode("utf-8-sig")
 
 
 def make_png(fig):
@@ -209,23 +255,23 @@ def make_png(fig):
     return buffer.getvalue()
 
 
-def show_download_area(clean_signal, noisy_signal, denoised_signal, metrics, fig):
-    st.subheader("下载结果")
+def show_download_area(clean_signal, noisy_signal, denoised_signal, butterworth_signal, comparison_df, fig):
+    st.subheader(TXT["download"])
     download_cols = st.columns(3)
     download_cols[0].download_button(
-        label="下载 denoised_signal.csv",
-        data=make_signal_csv(clean_signal, noisy_signal, denoised_signal),
+        label=TXT["download_signal"],
+        data=make_signal_csv(clean_signal, noisy_signal, denoised_signal, butterworth_signal),
         file_name="denoised_signal.csv",
         mime="text/csv",
     )
     download_cols[1].download_button(
-        label="下载 metrics.csv",
-        data=make_metrics_csv(metrics),
+        label=TXT["download_metrics"],
+        data=make_metrics_csv(comparison_df),
         file_name="metrics.csv",
         mime="text/csv",
     )
     download_cols[2].download_button(
-        label="下载 result.png",
+        label=TXT["download_png"],
         data=make_png(fig),
         file_name="result.png",
         mime="image/png",
@@ -233,22 +279,22 @@ def show_download_area(clean_signal, noisy_signal, denoised_signal, metrics, fig
 
 
 def main():
-    st.set_page_config(page_title="ECG心电信号去噪系统", layout="wide")
-    st.title("ECG心电信号去噪系统")
+    st.set_page_config(page_title=TXT["title"], layout="wide")
+    st.title(TXT["title"])
 
     with st.sidebar:
-        st.header("参数设置")
-        uploaded_file = st.file_uploader("上传CSV文件", type=["csv"])
-        noise_label = st.selectbox("噪声类型", list(NOISE_TYPE_MAP.keys()), index=0)
+        st.header(TXT["settings"])
+        uploaded_file = st.file_uploader(TXT["upload"], type=["csv"])
+        noise_label = st.selectbox(TXT["noise_type"], list(NOISE_TYPE_MAP.keys()), index=0)
 
-        st.header("波形特征显示")
-        show_p = st.checkbox("显示P波", value=False)
-        show_qrs = st.checkbox("显示QRS波群", value=False)
-        show_t = st.checkbox("显示T波", value=False)
-        show_r = st.checkbox("显示R峰", value=False)
+        st.header(TXT["features"])
+        show_p = st.checkbox(TXT["show_p"], value=False)
+        show_qrs = st.checkbox(TXT["show_qrs"], value=False)
+        show_t = st.checkbox(TXT["show_t"], value=False)
+        show_r = st.checkbox(TXT["show_r"], value=False)
 
     if uploaded_file is None:
-        st.info("请上传无表头、12列的ECG CSV文件。系统默认读取第2列作为单导联ECG信号。")
+        st.info(TXT["info"])
         return
 
     try:
@@ -257,13 +303,30 @@ def main():
         noisy_signal, denoised_signal = run_autoencoder(
             model, device, clean_signal, NOISE_TYPE_MAP[noise_label]
         )
-        metrics = calculate_metrics(clean_signal, noisy_signal, denoised_signal)
+        butterworth_signal = butterworth_lowpass_filter(noisy_signal)
+
+        autoencoder_metrics = calculate_metrics(clean_signal, noisy_signal, denoised_signal)
+        butterworth_metrics = calculate_metrics(clean_signal, noisy_signal, butterworth_signal)
+        comparison_df = make_comparison_df(autoencoder_metrics, butterworth_metrics)
 
         metric_cols = st.columns(4)
-        metric_cols[0].metric("MSE", f"{metrics['MSE']:.6f}")
-        metric_cols[1].metric("MAE", f"{metrics['MAE']:.6f}")
-        metric_cols[2].metric("Pearson", f"{metrics['Pearson']:.4f}")
-        metric_cols[3].metric("SNR Improvement", f"{metrics['SNR_improvement']:.2f} dB")
+        metric_cols[0].metric("MSE", f"{autoencoder_metrics['MSE']:.6f}")
+        metric_cols[1].metric("MAE", f"{autoencoder_metrics['MAE']:.6f}")
+        metric_cols[2].metric("Pearson", f"{autoencoder_metrics['Pearson']:.4f}")
+        metric_cols[3].metric("SNR Improvement", f"{autoencoder_metrics['SNR_improvement']:.2f} dB")
+
+        st.subheader(TXT["comparison"])
+        st.dataframe(
+            comparison_df.style.format(
+                {
+                    "MSE": "{:.6f}",
+                    "MAE": "{:.6f}",
+                    "Pearson": "{:.4f}",
+                    "SNR Improvement": "{:.2f}",
+                }
+            ),
+            use_container_width=True,
+        )
 
         feature_options = {
             "show_p": show_p,
@@ -271,12 +334,25 @@ def main():
             "show_t": show_t,
             "show_r": show_r,
         }
-        fig = plot_signals(clean_signal, noisy_signal, denoised_signal, feature_options)
+        fig = plot_signals(
+            clean_signal,
+            noisy_signal,
+            denoised_signal,
+            butterworth_signal,
+            feature_options,
+        )
         st.pyplot(fig, clear_figure=False)
-        show_download_area(clean_signal, noisy_signal, denoised_signal, metrics, fig)
+        show_download_area(
+            clean_signal,
+            noisy_signal,
+            denoised_signal,
+            butterworth_signal,
+            comparison_df,
+            fig,
+        )
         plt.close(fig)
     except Exception as exc:
-        st.error(f"运行失败: {exc}")
+        st.error(f"{TXT['run_failed']}: {exc}")
 
 
 if __name__ == "__main__":
