@@ -1,0 +1,21 @@
+# Python缓存
+__pycache__/
+*.pyc
+
+# PyCharm配置
+.idea/
+
+# 数据集
+data/raw/
+data/processed/
+
+# Streamlit缓存
+.streamlit/
+
+# 训练结果
+results/*.png
+results/*.csv
+results/model.pth
+
+# 保留最佳模型
+!results/best_model.pth
