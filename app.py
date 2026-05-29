@@ -22,14 +22,11 @@ from noise import add_noise
 SEGMENT_LENGTH = 1000
 MODEL_PATH = PROJECT_ROOT / "results" / "best_model.pth"
 NOISE_TYPE_MAP = {
-    "混合噪声": "mixed",
-    "高斯噪声": "gaussian",
-    "工频干扰": "line",
-    "基线漂移": "baseline",
+    "Mixed Noise": "mixed",
+    "Gaussian Noise": "gaussian",
+    "Powerline Interference": "line",
+    "Baseline Wander": "baseline",
 }
-
-plt.rcParams["font.sans-serif"] = ["SimHei", "Microsoft YaHei", "Arial Unicode MS"]
-plt.rcParams["axes.unicode_minus"] = False
 
 
 @st.cache_resource
@@ -37,7 +34,7 @@ def load_model():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = ECGAutoEncoder().to(device)
     if not MODEL_PATH.exists():
-        raise FileNotFoundError(f"未找到模型文件: {MODEL_PATH}")
+        raise FileNotFoundError(f"Model file not found: {MODEL_PATH}")
 
     state_dict = torch.load(MODEL_PATH, map_location=device)
     model.load_state_dict(state_dict)
@@ -48,11 +45,11 @@ def load_model():
 def load_ecg_signal(uploaded_file):
     df = pd.read_csv(uploaded_file, header=None)
     if df.shape[1] < 2:
-        raise ValueError("CSV至少需要2列，当前无法读取第2列ECG信号。")
+        raise ValueError("CSV must have at least 2 columns. Column 2 is used as ECG signal.")
 
     signal = df.iloc[:, 1].dropna().to_numpy(dtype=np.float32)
     if len(signal) < SEGMENT_LENGTH:
-        raise ValueError(f"ECG信号长度不足{SEGMENT_LENGTH}，无法进行模型推理。")
+        raise ValueError(f"ECG signal length must be at least {SEGMENT_LENGTH}.")
 
     signal = signal[:SEGMENT_LENGTH]
     signal_min = float(signal.min())
@@ -156,9 +153,9 @@ def draw_annotations(axis, signal, r_peaks, show_p, show_qrs, show_t, show_r):
 def plot_signals(clean_signal, noisy_signal, denoised_signal, feature_options):
     r_peaks = detect_r_peaks(clean_signal)
     signals = [
-        ("原始信号", "原始信号", "green", clean_signal),
-        ("带噪信号", "带噪信号", "red", noisy_signal),
-        ("去噪信号", "去噪信号", "blue", denoised_signal),
+        ("Original Signal", "Original Signal", "green", clean_signal),
+        ("Noisy Signal", "Noisy Signal", "red", noisy_signal),
+        ("Denoised Signal", "Denoised Signal", "blue", denoised_signal),
     ]
     fig, axes = plt.subplots(3, 1, figsize=(12, 8), dpi=120)
     x = np.arange(SEGMENT_LENGTH)
@@ -167,6 +164,8 @@ def plot_signals(clean_signal, noisy_signal, denoised_signal, feature_options):
         axis.plot(x, signal, color=color, linewidth=1.2, label=label)
         draw_annotations(axis, signal, r_peaks, **feature_options)
         axis.set_title(title)
+        axis.set_xlabel("Sample")
+        axis.set_ylabel("ECG Signal")
         axis.set_xlim(0, SEGMENT_LENGTH - 1)
         axis.set_ylim(-1.08, 1.08)
         axis.grid(True, alpha=0.5)
@@ -211,22 +210,22 @@ def make_png(fig):
 
 
 def show_download_area(clean_signal, noisy_signal, denoised_signal, metrics, fig):
-    st.subheader("下载结果")
+    st.subheader("Download Results")
     download_cols = st.columns(3)
     download_cols[0].download_button(
-        label="下载 denoised_signal.csv",
+        label="Download denoised_signal.csv",
         data=make_signal_csv(clean_signal, noisy_signal, denoised_signal),
         file_name="denoised_signal.csv",
         mime="text/csv",
     )
     download_cols[1].download_button(
-        label="下载 metrics.csv",
+        label="Download metrics.csv",
         data=make_metrics_csv(metrics),
         file_name="metrics.csv",
         mime="text/csv",
     )
     download_cols[2].download_button(
-        label="下载 result.png",
+        label="Download result.png",
         data=make_png(fig),
         file_name="result.png",
         mime="image/png",
@@ -234,22 +233,22 @@ def show_download_area(clean_signal, noisy_signal, denoised_signal, metrics, fig
 
 
 def main():
-    st.set_page_config(page_title="ECG去噪系统", layout="wide")
-    st.title("ECG心电信号去噪系统")
+    st.set_page_config(page_title="ECG Denoising System", layout="wide")
+    st.title("ECG Denoising System")
 
     with st.sidebar:
-        st.header("参数设置")
-        uploaded_file = st.file_uploader("上传CSV文件", type=["csv"])
-        noise_label = st.selectbox("噪声类型", list(NOISE_TYPE_MAP.keys()), index=0)
+        st.header("Settings")
+        uploaded_file = st.file_uploader("Upload CSV File", type=["csv"])
+        noise_label = st.selectbox("Noise Type", list(NOISE_TYPE_MAP.keys()), index=0)
 
-        st.header("波形特征显示")
-        show_p = st.checkbox("显示P波", value=False)
-        show_qrs = st.checkbox("显示QRS波群", value=False)
-        show_t = st.checkbox("显示T波", value=False)
-        show_r = st.checkbox("显示R峰", value=False)
+        st.header("Waveform Features")
+        show_p = st.checkbox("Show P Wave", value=False)
+        show_qrs = st.checkbox("Show QRS Complex", value=False)
+        show_t = st.checkbox("Show T Wave", value=False)
+        show_r = st.checkbox("Show R Peak", value=False)
 
     if uploaded_file is None:
-        st.info("请上传无表头、12列的ECG CSV文件。系统默认读取第2列作为单导联ECG信号。")
+        st.info("Please upload a headerless 12-column ECG CSV file. Column 2 is used by default.")
         return
 
     try:
@@ -277,7 +276,7 @@ def main():
         show_download_area(clean_signal, noisy_signal, denoised_signal, metrics, fig)
         plt.close(fig)
     except Exception as exc:
-        st.error(f"运行失败: {exc}")
+        st.error(f"Run failed: {exc}")
 
 
 if __name__ == "__main__":
