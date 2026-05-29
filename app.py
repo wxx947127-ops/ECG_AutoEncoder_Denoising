@@ -22,10 +22,10 @@ from noise import add_noise
 SEGMENT_LENGTH = 1000
 MODEL_PATH = PROJECT_ROOT / "results" / "best_model.pth"
 NOISE_TYPE_MAP = {
-    "Mixed Noise": "mixed",
-    "Gaussian Noise": "gaussian",
-    "Powerline Interference": "line",
-    "Baseline Wander": "baseline",
+    "混合噪声": "mixed",
+    "高斯噪声": "gaussian",
+    "工频干扰": "line",
+    "基线漂移": "baseline",
 }
 
 
@@ -210,22 +210,22 @@ def make_png(fig):
 
 
 def show_download_area(clean_signal, noisy_signal, denoised_signal, metrics, fig):
-    st.subheader("Download Results")
+    st.subheader("下载结果")
     download_cols = st.columns(3)
     download_cols[0].download_button(
-        label="Download denoised_signal.csv",
+        label="下载 denoised_signal.csv",
         data=make_signal_csv(clean_signal, noisy_signal, denoised_signal),
         file_name="denoised_signal.csv",
         mime="text/csv",
     )
     download_cols[1].download_button(
-        label="Download metrics.csv",
+        label="下载 metrics.csv",
         data=make_metrics_csv(metrics),
         file_name="metrics.csv",
         mime="text/csv",
     )
     download_cols[2].download_button(
-        label="Download result.png",
+        label="下载 result.png",
         data=make_png(fig),
         file_name="result.png",
         mime="image/png",
@@ -233,22 +233,22 @@ def show_download_area(clean_signal, noisy_signal, denoised_signal, metrics, fig
 
 
 def main():
-    st.set_page_config(page_title="ECG Denoising System", layout="wide")
-    st.title("ECG Denoising System")
+    st.set_page_config(page_title="ECG心电信号去噪系统", layout="wide")
+    st.title("ECG心电信号去噪系统")
 
     with st.sidebar:
-        st.header("Settings")
-        uploaded_file = st.file_uploader("Upload CSV File", type=["csv"])
-        noise_label = st.selectbox("Noise Type", list(NOISE_TYPE_MAP.keys()), index=0)
+        st.header("参数设置")
+        uploaded_file = st.file_uploader("上传CSV文件", type=["csv"])
+        noise_label = st.selectbox("噪声类型", list(NOISE_TYPE_MAP.keys()), index=0)
 
-        st.header("Waveform Features")
-        show_p = st.checkbox("Show P Wave", value=False)
-        show_qrs = st.checkbox("Show QRS Complex", value=False)
-        show_t = st.checkbox("Show T Wave", value=False)
-        show_r = st.checkbox("Show R Peak", value=False)
+        st.header("波形特征显示")
+        show_p = st.checkbox("显示P波", value=False)
+        show_qrs = st.checkbox("显示QRS波群", value=False)
+        show_t = st.checkbox("显示T波", value=False)
+        show_r = st.checkbox("显示R峰", value=False)
 
     if uploaded_file is None:
-        st.info("Please upload a headerless 12-column ECG CSV file. Column 2 is used by default.")
+        st.info("请上传无表头、12列的ECG CSV文件。系统默认读取第2列作为单导联ECG信号。")
         return
 
     try:
@@ -276,7 +276,7 @@ def main():
         show_download_area(clean_signal, noisy_signal, denoised_signal, metrics, fig)
         plt.close(fig)
     except Exception as exc:
-        st.error(f"Run failed: {exc}")
+        st.error(f"运行失败: {exc}")
 
 
 if __name__ == "__main__":
