@@ -1,3 +1,4 @@
+from io import BytesIO
 from pathlib import Path
 import sys
 
@@ -95,13 +96,15 @@ def calculate_pearson(clean_signal, compared_signal):
 
 
 def calculate_metrics(clean_signal, noisy_signal, denoised_signal):
-    before_snr = calculate_snr(clean_signal, noisy_signal)
-    after_snr = calculate_snr(clean_signal, denoised_signal)
+    snr_before = calculate_snr(clean_signal, noisy_signal)
+    snr_after = calculate_snr(clean_signal, denoised_signal)
     return {
         "MSE": float(np.mean((denoised_signal - clean_signal) ** 2)),
         "MAE": float(np.mean(np.abs(denoised_signal - clean_signal))),
         "Pearson": calculate_pearson(clean_signal, denoised_signal),
-        "SNR Improvement": after_snr - before_snr,
+        "SNR_before": snr_before,
+        "SNR_after": snr_after,
+        "SNR_improvement": snr_after - snr_before,
     }
 
 
@@ -173,6 +176,63 @@ def plot_signals(clean_signal, noisy_signal, denoised_signal, feature_options):
     return fig
 
 
+def make_signal_csv(clean_signal, noisy_signal, denoised_signal):
+    signal_df = pd.DataFrame(
+        {
+            "clean_signal": clean_signal,
+            "noisy_signal": noisy_signal,
+            "denoised_signal": denoised_signal,
+        }
+    )
+    return signal_df.to_csv(index=False).encode("utf-8-sig")
+
+
+def make_metrics_csv(metrics):
+    metrics_df = pd.DataFrame(
+        [
+            {
+                "MSE": metrics["MSE"],
+                "MAE": metrics["MAE"],
+                "Pearson": metrics["Pearson"],
+                "SNR_before": metrics["SNR_before"],
+                "SNR_after": metrics["SNR_after"],
+                "SNR_improvement": metrics["SNR_improvement"],
+            }
+        ]
+    )
+    return metrics_df.to_csv(index=False).encode("utf-8-sig")
+
+
+def make_png(fig):
+    buffer = BytesIO()
+    fig.savefig(buffer, format="png", dpi=150, bbox_inches="tight")
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
+def show_download_area(clean_signal, noisy_signal, denoised_signal, metrics, fig):
+    st.subheader("下载结果")
+    download_cols = st.columns(3)
+    download_cols[0].download_button(
+        label="下载 denoised_signal.csv",
+        data=make_signal_csv(clean_signal, noisy_signal, denoised_signal),
+        file_name="denoised_signal.csv",
+        mime="text/csv",
+    )
+    download_cols[1].download_button(
+        label="下载 metrics.csv",
+        data=make_metrics_csv(metrics),
+        file_name="metrics.csv",
+        mime="text/csv",
+    )
+    download_cols[2].download_button(
+        label="下载 result.png",
+        data=make_png(fig),
+        file_name="result.png",
+        mime="image/png",
+    )
+
+
 def main():
     st.set_page_config(page_title="ECG去噪系统", layout="wide")
     st.title("ECG心电信号去噪系统")
@@ -204,7 +264,7 @@ def main():
         metric_cols[0].metric("MSE", f"{metrics['MSE']:.6f}")
         metric_cols[1].metric("MAE", f"{metrics['MAE']:.6f}")
         metric_cols[2].metric("Pearson", f"{metrics['Pearson']:.4f}")
-        metric_cols[3].metric("SNR Improvement", f"{metrics['SNR Improvement']:.2f} dB")
+        metric_cols[3].metric("SNR Improvement", f"{metrics['SNR_improvement']:.2f} dB")
 
         feature_options = {
             "show_p": show_p,
@@ -213,7 +273,9 @@ def main():
             "show_r": show_r,
         }
         fig = plot_signals(clean_signal, noisy_signal, denoised_signal, feature_options)
-        st.pyplot(fig, clear_figure=True)
+        st.pyplot(fig, clear_figure=False)
+        show_download_area(clean_signal, noisy_signal, denoised_signal, metrics, fig)
+        plt.close(fig)
     except Exception as exc:
         st.error(f"运行失败: {exc}")
 
